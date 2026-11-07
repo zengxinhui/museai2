@@ -165,7 +165,7 @@
          (for [[idx seg] (map-indexed vector (:segments s))]
            (if (string? seg)
              ^{:key idx} [:<> seg]
-             ^{:key idx} [:span {:class (str "hl hl-" (mod idx 4))} (:word seg)]))]
+             ^{:key idx} [:span {:class (str "hl hl-" (mod idx 4))} (or (:surface seg) (:word seg))]))]
         [:div {:style {:margin-top "16px"}}
          [:h3 "Words used"]
          [:ul
@@ -173,7 +173,7 @@
             ^{:key (:id w)}
             [:li [:b (:word w)] " — " (:meaning w)])]]
         [:p [:button.btn-amber {:on-click #(swap! ui update :sentence-offset inc)} "Another sentence"]]
-        [:p.muted "Sentences are built from your mastered words using fixed templates — the same words give the same sentence all day."]])]))
+        [:p.muted "A real sentence from Tatoeba (CC-BY), using words you have mastered — the same sentence is shown all day."]])]))
 
 (defn stats-view []
   (let [now (js/Date.now)

@@ -1,12 +1,26 @@
 (ns wordmaster.sentence
-  "Sentence of the Day (Option C, template-based, offline).
-   Deterministic from the calendar date: the same mastered words
-   produce the same sentence all day; 'Another' cycles to the next
-   rotation. Sentences are built only from mastered words plus fixed
-   template glue — no invented vocabulary beyond the templates.
+  "Sentence of the Day — real sentences from a corpus, never generated.
 
-   A sentence is a vector of segments: plain strings or word maps.
-   Word segments render highlighted, with their meaning shown below.")
+   The app is offline with no language model, so correctness lives in
+   a curated bank: src/wordmaster/data/sentences.cljs, built by
+   scripts/build_sentences.py from Tatoeba English sentences (CC-BY).
+   The app only *selects* from the bank — it never glues mastered
+   words together into templates.
+
+   Selection: a sentence is eligible when it contains at least 2
+   distinct mastered words; if none does, sentences with at least 1
+   mastered word are used. If no sentence contains any mastered word,
+   this returns nil and the view shows the unlock message.
+   Deterministic from the calendar date: the same mastered words give
+   the same sentence all day; `offset` (\"Another sentence\") cycles
+   to the next eligible sentence.
+
+   A sentence is {:text \"...\" :segments [...] :words [...] :source
+   \"tatoeba\"}. Segments are plain strings, or mastered-word maps
+   with a :surface key holding the word exactly as it appears in the
+   sentence (so \"The\" at the start of a sentence stays capitalised);
+   joining the segments reconstructs :text exactly."
+  (:require [wordmaster.data.sentences :as bank]))
 
 (defn day-number
   "Days since the Unix epoch for a local calendar date."
@@ -15,61 +29,79 @@
    (let [midnight (js/Date. (.getFullYear d) (.getMonth d) (.getDate d))]
      (quot (.getTime midnight) 86400000))))
 
-(defn- pick [words day-num offset n]
-  (when (seq words)
-    (let [start (mod (+ day-num offset) (count words))]
-      (vec (take n (drop start (cycle words)))))))
+;; Contractions whose stem is not what naive suffix-stripping gives.
+;; Mirrors scripts/build_sentences.py, so the words a bank sentence
+;; claims to contain are exactly the words found in its text.
+(def contractions
+  {"can't" "can" "won't" "will" "shan't" "shall" "ain't" "be"
+   "couldn't" "could" "shouldn't" "should" "wouldn't" "would"
+   "don't" "do" "doesn't" "does" "didn't" "did"
+   "isn't" "is" "aren't" "are" "wasn't" "was" "weren't" "were"
+   "haven't" "have" "hasn't" "has" "hadn't" "had"
+   "i'm" "i" "you're" "you" "we're" "we" "they're" "they"
+   "he's" "he" "she's" "she" "it's" "it" "that's" "that"
+   "i've" "i" "we've" "we" "they've" "they"
+   "i'll" "i" "you'll" "you" "we'll" "we" "they'll" "they"
+   "he'll" "he" "she'll" "she" "it'll" "it"
+   "i'd" "i" "you'd" "you" "he'd" "he" "she'd" "she"
+   "we'd" "we" "they'd" "they" "let's" "let"
+   "what's" "what" "who's" "who" "where's" "where"
+   "when's" "when" "why's" "why" "how's" "how"
+   "there's" "there" "here's" "here"})
 
-(defn- one-word-templates [w]
-  [(str "Today's word is ")
-   w
-   (str ". It means “" (:meaning w) "”. Try to use it in a sentence of your own today.")
-   ])
+(defn normalize-token
+  "Lowercase a word token and expand contractions / strip possessives:
+   \"Don't\" -> \"do\", \"Tom's\" -> \"tom\", \"we're\" -> \"we\"."
+  [token]
+  (let [t (.toLowerCase token)]
+    (if-let [c (get contractions t)]
+      c
+      (cond
+        (.endsWith t "n't") (subs t 0 (- (count t) 3))
+        (.endsWith t "'s") (subs t 0 (- (count t) 2))
+        (.endsWith t "'re") (subs t 0 (- (count t) 3))
+        (.endsWith t "'ve") (subs t 0 (- (count t) 3))
+        (.endsWith t "'ll") (subs t 0 (- (count t) 3))
+        (.endsWith t "'d") (subs t 0 (- (count t) 2))
+        (.endsWith t "'m") (subs t 0 (- (count t) 2))
+        :else t))))
 
-(defn- two-word-templates [[a b]]
-  [[(str "A: Do you know what “") a (str "” means?")
-    (str " B: Yes — it means “" (:meaning a) "”.")
-    (str " A: And what about “") b (str "”?")
-    (str " B: That means “" (:meaning b) "”.")]
-   [(str "Remember these two words: ") a (str " and ") b
-    (str ". “" (:word a) "” means “" (:meaning a) "”, and “"
-         (:word b) "” means “" (:meaning b) "”.")]
-   [(str "Today, practise ") a (str " and ") b
-    (str ". Say each one out loud, then write a sentence using both.")]])
+(defn text-words
+  "Distinct normalised words in a sentence's text, in order."
+  [text]
+  (distinct (map normalize-token
+                 (re-seq #"[A-Za-z]+(?:'[A-Za-z]+)?" text))))
 
-(defn- three-word-templates [[a b c]]
-  [[(str "Today you are practising: ") a (str ", ") b (str " and ") c (str ".")
-    (str " “" (:word a) "” means “" (:meaning a) "”; “"
-         (:word b) "” means “" (:meaning b) "”; “"
-         (:word c) "” means “" (:meaning c) "”.")]
-   [(str "A: I learned three new words today: ") a (str ", ") b (str " and ") c
-    (str ". B: Well done! Keep using them and they will stay with you.")]])
+(defn- segments-for
+  "Split text into segments: plain strings, plus the mastered-word
+   records used, each with :surface set to the word as it appears."
+  [text used-words]
+  (let [by-word (into {} (map (juxt :word identity) used-words))]
+    (mapv (fn [piece]
+            (if (re-matches #"[A-Za-z]+(?:'[A-Za-z]+)?" piece)
+              (if-let [w (get by-word (normalize-token piece))]
+                (assoc w :surface piece)
+                piece)
+              piece))
+          (re-seq #"[A-Za-z]+(?:'[A-Za-z]+)?|[^A-Za-z]+" text))))
 
 (defn sentence-of-the-day
-  "Returns {:segments [...] :words [...]} for the given mastered
-   words (rank order), or nil when there are no mastered words.
-   `offset` cycles the rotation for the 'Another' button."
+  "Returns {:text :segments :words :source} for the given mastered
+   words (rank order), or nil when no bank sentence contains any of
+   them (including when there are no mastered words). `offset` cycles
+   to the next eligible sentence for the 'Another' button."
   [mastered-words day-num offset]
-  (let [words (vec mastered-words)]
-    (when (seq words)
-      (cond
-        (= 1 (count words))
-        (let [ws (pick words day-num offset 1)]
-          {:segments (one-word-templates (first ws)) :words ws})
-
-        (= 2 (count words))
-        (let [ws (pick words day-num offset 2)
-              templates (two-word-templates ws)
-              t (nth templates (mod (+ day-num offset) (count templates)))]
-          {:segments t :words ws})
-
-        :else
-        (let [n (if (zero? (mod (+ day-num offset) 3)) 3 2)
-              ws (pick words day-num offset n)]
-          (if (= 3 n)
-            (let [templates (three-word-templates ws)
-                  t (nth templates (mod (+ day-num offset) (count templates)))]
-              {:segments t :words ws})
-            (let [templates (two-word-templates ws)
-                  t (nth templates (mod (+ day-num offset) (count templates)))]
-              {:segments t :words ws})))))))
+  (let [mastered (set (map :word mastered-words))]
+    (when (seq mastered)
+      (let [n-mastered (fn [s] (count (filter mastered (:words s))))
+            eligible2 (filterv #(>= (n-mastered %) 2) bank/sentences)
+            eligible1 (filterv #(>= (n-mastered %) 1) bank/sentences)
+            eligible (seq (or (seq eligible2) (seq eligible1)))]
+        (when eligible
+          (let [entry (nth eligible (mod (+ day-num offset) (count eligible)))
+                used (filterv #(contains? (set (:words entry)) (:word %))
+                              mastered-words)]
+            {:text (:text entry)
+             :segments (segments-for (:text entry) used)
+             :words used
+             :source (:source entry)}))))))

@@ -2,7 +2,9 @@ node_modules/
 .shadow-cljs/
 public/js/
 scripts/words.json
+scripts/sentences.json
 scripts/missing.json
+data-raw/eng_sentences.tsv.bz2
 resolve.log
 .DS_Store
 .clj-kondo

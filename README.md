@@ -49,12 +49,23 @@ Java is not on `PATH` by default here; the wrapper sets
 
 ## Sentence of the Day
 
-Template-based (Option C in the project plan) and fully offline:
-sentences are built from your mastered words plus fixed template glue,
+Real sentences, not templates: the app selects from a bank of 1,755
+sentences from **Tatoeba** (English sentences, CC-BY — see
+`scripts/build_sentences.py`), filtered to short natural sentences
+(3–15 words) containing top-1000 words. A sentence is eligible when
+it contains at least 2 distinct mastered words, falling back to
+sentences with 1 mastered word; if no sentence contains any mastered
+word it says "Master a word to unlock sentences!". Selection is
 deterministic from the calendar date (same words → same sentence all
 day), with an "Another sentence" button to cycle. Mastered words are
-highlighted, with their meanings listed below. With no mastered words
-yet it says "Master a word to unlock sentences!".
+highlighted in place, with their meanings listed below, and the view
+notes the Tatoeba (CC-BY) source. Coverage: 997/1000 words have at
+least one sentence; the 3 uncovered words (`rss`, `feb`, `jul` — see
+`scripts/uncovered_words.json`) are abbreviations that do not occur
+as standalone words in natural sentences.
+
+Regenerate with `python3 scripts/build_sentences.py` (downloads the
+Tatoeba per-language English export into `data-raw/`).
 
 ## Data: the 1,000 words
 
@@ -98,12 +109,17 @@ src/wordmaster/
   state.cljs               pure SRS logic (queue builder, pass/fail)
   storage.cljs             localStorage save/load, merge by :id
   quiz.cljs                4-choice question generation
-  sentence.cljs            Sentence of the Day templates
+  sentence.cljs            Sentence of the Day: selects real Tatoeba
+                           sentences containing mastered words
   data/words.cljs          the 1,000 words, compiled in
+  data/sentences.cljs      1,755 Tatoeba sentences, compiled in
 test/wordmaster/
   srs_test.cljs            cljs.test: the 8 critical spec cases + extras
 scripts/
   build_words.py           word list + meanings pipeline
+  build_sentences.py       Tatoeba sentence bank pipeline
+  uncovered_words.json     words with no bank sentence (rss, feb, jul)
+  sentences.json           sentence bank (intermediate JSON)
   fallbacks.json           curated definitions (135)
   resolve_maven.py         populate ~/.m2 via proxy-friendly downloads
   classpath.py / watch.sh  run shadow-cljs without Maven resolution
@@ -111,9 +127,13 @@ scripts/
 
 ## Tests
 
-`scripts/watch.sh compile test && node public/js/test.js` — 13 tests,
-39 assertions, 0 failures. Covers: new pass/fail, mastered pass
+`scripts/watch.sh compile test && node public/js/test.js` — 15 tests,
+50 assertions, 0 failures. Covers: new pass/fail, mastered pass
 doubling incl. the 32-day cap, mastered fail reset, and the three queue
 cases (5 due + 10 new → 10 with all due; 0 due + 10 new → 10 in rank
 order; 12 due + 5 new → 10 due), plus question shape, sentence
-determinism, and dataset sanity (count, ranks, uniqueness, meanings).
+determinism (real Tatoeba sentence, 2+ mastered words in context,
+segments reconstruct the text exactly, 1-word fallback, uncovered
+word → nil), sentence-bank coverage (≥950/1000 words, every listed
+word occurs in its sentence), and dataset sanity (count, ranks,
+uniqueness, meanings).

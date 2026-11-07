@@ -5,7 +5,8 @@
             [wordmaster.state :as st]
             [wordmaster.quiz :as quiz]
             [wordmaster.sentence :as sentence]
-            [wordmaster.data.words :as data]))
+            [wordmaster.data.words :as data]
+            [wordmaster.data.sentences :as bank]))
 
 (def now 1790000000000) ;; fixed "now" for deterministic tests
 (def day st/day-ms)
@@ -102,18 +103,60 @@
       (is (= (:meaning word) (:correct q))))))
 
 (deftest sentence-of-the-day
-  (testing "no mastered words -> nil; mastered words -> deterministic sentence using them"
-    (is (nil? (sentence/sentence-of-the-day [] 100 0)))
-    (let [mastered (mapv #(w % :state :mastered :days 1 :next (+ now day)) (range 1 6))
+  (testing "real sentence from the bank, using mastered words in context"
+    (is (nil? (sentence/sentence-of-the-day [] 100 0)) "no mastered words -> nil")
+    (let [mastered (filterv #(contains? #{"the" "of" "and" "book" "time"} (:word %))
+                            data/words)
           a (sentence/sentence-of-the-day mastered 100 0)
           b (sentence/sentence-of-the-day mastered 100 0)
           c (sentence/sentence-of-the-day mastered 100 1)]
+      (is (some? a))
       (is (= a b) "same day + offset is deterministic")
-      (is (seq (:segments a)))
-      (is (seq (:words a)))
-      (is (every? #(some (fn [x] (= x %)) (:segments a)) (:words a))
+      (is (not= a c) "offset cycles to a different sentence")
+      ;; it is a real sentence, not a word list with glosses
+      (is (re-matches #"[A-Z].*[.?!]" (:text a))
+          "capitalised, ends with sentence punctuation")
+      (is (not (re-find #"means" (:text a)))
+          "no 'means …' gloss in the sentence itself")
+      (is (= (:text a)
+             (apply str (map #(if (string? %) % (or (:surface %) (:word %)))
+                             (:segments a))))
+          "segments reconstruct the sentence text exactly")
+      (is (>= (count (:words a)) 2)
+          "prefers sentences with 2+ mastered words")
+      (is (every? #(some (fn [seg] (and (map? seg) (= (:word %) (:word seg))))
+                         (:segments a))
+                  (:words a))
           "every word used appears as a highlighted segment")
-      (is (not= a c) "offset cycles to a different sentence"))))
+      (is (every? #(contains? (set (sentence/text-words (:text a))) (:word %))
+                  (:words a))
+          "every word used occurs as a whole word in the sentence"))))
+
+(deftest sentence-fallbacks
+  (testing "one mastered word -> a sentence with that word; uncovered word -> nil"
+    (let [one (filterv #(= "book" (:word %)) data/words)
+          s (sentence/sentence-of-the-day one 100 0)]
+      (is (some? s))
+      (is (contains? (set (sentence/text-words (:text s))) "book")))
+    ;; "w999" is not a real word and appears in no bank sentence
+    (is (nil? (sentence/sentence-of-the-day
+               [(w 999 :state :mastered :days 1 :next (+ now day))] 100 0)))))
+
+(deftest sentence-bank
+  (testing "bank: real sentences covering (almost) all 1000 words"
+    (is (pos? (count bank/sentences)))
+    (let [covered (into #{} (mapcat :words bank/sentences))]
+      (is (>= (count covered) 950)
+          (str "at least 950/1000 words covered, got " (count covered)))
+      (is (every? #(contains? (set (map :word data/words)) %) covered)
+          "every covered word is one of the 1000"))
+    (is (every? (fn [s]
+                  (and (re-matches #"[A-Z].*[.?!]" (:text s))
+                       (= "tatoeba" (:source s))
+                       (every? #(contains? (set (sentence/text-words (:text s))) %)
+                               (:words s))))
+                bank/sentences)
+        "every bank sentence is a real sentence whose listed words occur in its text")))
 
 (deftest dataset-sanity
   (testing "dataset: 1000 words, ranks 1..1000 in order, unique, all with meanings"
