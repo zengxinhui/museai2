@@ -1,0 +1,9 @@
+node_modules/
+.shadow-cljs/
+public/js/
+scripts/words.json
+scripts/missing.json
+resolve.log
+.DS_Store
+.clj-kondo
+.lsp

@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WordMaster — 1,000 most frequent English words</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: #f9fafb; color: #111827; }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 16px; }
+  header h1 { margin-bottom: 4px; }
+  header p { color: #4b5563; }
+  nav { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0; }
+  button { padding: 10px 16px; font-size: 16px; border: 1px solid #d1d5db; border-radius: 8px; background: #fff; cursor: pointer; }
+  button:hover { background: #f3f4f6; }
+  button.active { background: #111827; color: #fff; border-color: #111827; }
+  button:disabled { opacity: .5; cursor: default; }
+  .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 20px; margin: 16px 0; }
+  .word-prompt { font-size: 40px; font-weight: 700; text-align: center; margin: 8px 0 20px; }
+  .options { display: grid; gap: 10px; }
+  .option { text-align: left; padding: 14px 16px; font-size: 17px; }
+  .option.correct { background: #d1fae5; border-color: #059669; }
+  .option.wrong { background: #fee2e2; border-color: #dc2626; }
+  .progress { height: 10px; background: #e5e7eb; border-radius: 999px; overflow: hidden; margin: 8px 0; }
+  .progress > div { height: 100%; background: #2563eb; }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 13px; }
+  .badge-new { background: #e5e7eb; }
+  .badge-mastered { background: #d1fae5; }
+  .hl { background: #fef3c7; padding: 0 3px; border-radius: 4px; font-weight: 700; }
+  .muted { color: #4b5563; }
+  .stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+  .stat { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px; }
+  .stat b { font-size: 28px; display: block; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #e5e7eb; }
+</style>
+</head>
+<body>
+<div id="app"><p style="padding:24px">Loading WordMaster…</p></div>
+<script src="js/main.js"></script>
+</body>
+</html>
