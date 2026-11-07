@@ -74,7 +74,7 @@
     [:nav
      (for [[k label] [[:home "Home"] [:sentence "Sentence of the Day"] [:stats "Stats"]]]
        ^{:key k}
-       [:button {:class (when (= view k) "active")
+       [:button {:class (str "nav-" (name k) (when (= view k) " active"))
                  :on-click #(swap! ui assoc :view k)}
         label])]))
 
@@ -95,14 +95,14 @@
          [:p (str "Next session: " (count queue) " words ("
                    (count (filter #(= :mastered (:state %)) queue)) " review, "
                    (count (filter #(= :new (:state %)) queue)) " new).")]
-         [:button {:on-click start-session!} "Start session"]]
+         [:button.btn-primary {:on-click start-session!} "Start session"]]
 
         (and (zero? (:due c)) (zero? (:new c)))
         [:p "All 1,000 words mastered and nothing due — come back tomorrow!"]
 
         :else
         [:p "No session available right now."])]
-     [:div.card
+     [:div.card.card-note
       [:h3 "How it works"]
       [:p "Pass a quiz to master a word. Mastered words come back after 1, 2, 4, 8, 16, then 32 days (32 is the longest gap). Fail a review and the word is due again tomorrow — it stays mastered."]
       [:p "The Sentence of the Day uses words you have already mastered."]]]))
@@ -117,7 +117,7 @@
          [:p (str "You passed " (:passed s) " of " (count (:questions s)) " words.")]
          (when (pos? (:newly-mastered s))
            [:p (str "Newly mastered: " (:newly-mastered s) " word(s). They will be due for review tomorrow.")])
-         [:p [:button {:on-click #(swap! ui assoc :view :home :session nil)} "Back to Home"]
+         [:p [:button.btn-primary {:on-click #(swap! ui assoc :view :home :session nil)} "Back to Home"]
           " "
           [:button {:on-click #(swap! ui assoc :view :sentence :session nil)} "Sentence of the Day"]]]
         (let [q (nth (:questions s) (:index s))
@@ -130,9 +130,9 @@
            [:p "What does this mean?"]
            [:div.word-prompt (:word (:word q))]
            [:div.options
-            (for [opt (:options q)]
+            (for [[idx opt] (map-indexed vector (:options q))]
               ^{:key opt}
-              [:button {:class (str "option"
+              [:button {:class (str "option opt-" (mod idx 4)
                                     (cond
                                       (and picked (= opt (:correct q))) " correct"
                                       (and picked (= opt picked)) " wrong"
@@ -141,9 +141,10 @@
                         :on-click #(answer! opt)}
                opt])]
            (when picked
-             [:p (if (:correct? s)
-                   "Correct!"
-                   (str "Not quite — “" (:word (:word q)) "” means “" (:correct q) "”."))
+             [:p {:class (str "feedback " (if (:correct? s) "feedback-correct" "feedback-wrong"))}
+              (if (:correct? s)
+                "Correct!"
+                (str "Not quite — “" (:word (:word q)) "” means “" (:correct q) "”."))
               " Next word coming up…"])])))))
 
 (defn sentence-view []
@@ -158,20 +159,20 @@
        [:div
         [:p "Master a word to unlock sentences!"]
         [:p "Finish a quiz session first — sentences here are built from the words you have mastered."]
-        [:button {:on-click #(swap! ui assoc :view :home)} "Go to Home"]]
+        [:button.btn-primary {:on-click #(swap! ui assoc :view :home)} "Go to Home"]]
        [:div
-        [:p {:style {:font-size "19px" :line-height "1.7"}}
+        [:p.sentence-text {:style {:font-size "19px" :line-height "1.7"}}
          (for [[idx seg] (map-indexed vector (:segments s))]
            (if (string? seg)
              ^{:key idx} [:<> seg]
-             ^{:key idx} [:span.hl (:word seg)]))]
+             ^{:key idx} [:span {:class (str "hl hl-" (mod idx 4))} (:word seg)]))]
         [:div {:style {:margin-top "16px"}}
          [:h3 "Words used"]
          [:ul
           (for [w (:words s)]
             ^{:key (:id w)}
             [:li [:b (:word w)] " — " (:meaning w)])]]
-        [:p [:button {:on-click #(swap! ui update :sentence-offset inc)} "Another sentence"]]
+        [:p [:button.btn-amber {:on-click #(swap! ui update :sentence-offset inc)} "Another sentence"]]
         [:p.muted "Sentences are built from your mastered words using fixed templates — the same words give the same sentence all day."]])]))
 
 (defn stats-view []
@@ -182,10 +183,10 @@
      [:div.card
       [:h2 "Stats"]
       [:div.stat-grid
-       [:div.stat [:b (:mastered c)] "words mastered"]
-       [:div.stat [:b (:new c)] "new words left"]
-       [:div.stat [:b (:due c)] "due today"]
-       [:div.stat [:b (:total c)] "total words"]]]
+       [:div.stat.stat-mastered [:b (:mastered c)] "words mastered"]
+       [:div.stat.stat-new [:b (:new c)] "new words left"]
+       [:div.stat.stat-due [:b (:due c)] "due today"]
+       [:div.stat.stat-total [:b (:total c)] "total words"]]]
      [:div.card
       [:h3 "Upcoming reviews (next 7 days)"]
       (if (zero? (:mastered c))
@@ -198,17 +199,18 @@
             [:tr [:td day] [:td n]])]])]]))
 
 (defn app []
-  [:div.wrap
-   [:header
-    [:h1 "WordMaster"]
-    [:p "The 1,000 most frequent English words, in frequency order."]]
-   [nav]
-   (case (:view @ui)
-     :home [home-view]
-     :quiz [quiz-view]
-     :sentence [sentence-view]
-     :stats [stats-view]
-     [home-view])])
+  (let [view (:view @ui)]
+    [:div {:class (str "wrap view-" (name view))}
+     [:header
+      [:h1 "WordMaster"]
+      [:p "The 1,000 most frequent English words, in frequency order."]]
+     [nav]
+     (case view
+       :home [home-view]
+       :quiz [quiz-view]
+       :sentence [sentence-view]
+       :stats [stats-view]
+       [home-view])]))
 
 ;; React 19 (via Reagent 2.0.1) has no react-dom/render: the old
 ;; reagent.dom/render only works with React 18 or older, and silently
