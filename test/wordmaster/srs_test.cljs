@@ -132,6 +132,38 @@
                   (:words a))
           "every word used occurs as a whole word in the sentence"))))
 
+(deftest sentence-maximises-mastered
+  (testing "pick uses as many distinct mastered words as possible"
+    (let [mastered50 (vec (take 50 data/words))
+          mastered200 (vec (take 200 data/words))]
+      ;; the pick is at (or one below) the best any bank sentence can do
+      (let [a (sentence/sentence-of-the-day mastered50 100 0)]
+        (is (some? a))
+        (is (>= (:n-mastered a) 10)
+            (str "50 mastered words -> sentence uses >=10, got " (:n-mastered a)))
+        (is (= (:n-mastered a) (count (:words a)))
+            ":n-mastered is the count of mastered words used"))
+      (let [a (sentence/sentence-of-the-day mastered200 100 0)]
+        (is (>= (:n-mastered a) 15)
+            (str "200 mastered words -> sentence uses >=15, got " (:n-mastered a))))
+      ;; deterministic per day, but varies across days and with offset
+      (is (= (sentence/sentence-of-the-day mastered50 100 0)
+             (sentence/sentence-of-the-day mastered50 100 0))
+          "same day + offset is deterministic")
+      (is (< 1 (count (distinct (map #(sentence/sentence-of-the-day mastered50 % 0)
+                                     (range 100 110)))))
+          "different days pick different sentences")
+      (is (< 1 (count (distinct (map #(sentence/sentence-of-the-day mastered200 100 %)
+                                     (range 10)))))
+          "offset cycles through the top tier")
+      ;; the top tier is within 2 of the best achievable score, and
+      ;; has at least 5 entries to cycle through where possible
+      (let [tier (sentence/top-tier mastered50)
+            scores (map second tier)]
+        (is (>= (count tier) 5) "top tier has >=5 entries")
+        (is (>= (apply min scores) (- (apply max scores) 2))
+            "every tier entry is within 2 of the best score")))))
+
 (deftest sentence-fallbacks
   (testing "one mastered word -> a sentence with that word; uncovered word -> nil"
     (let [one (filterv #(= "book" (:word %)) data/words)
@@ -146,10 +178,16 @@
   (testing "bank: real sentences covering (almost) all 1000 words"
     (is (pos? (count bank/sentences)))
     (let [covered (into #{} (mapcat :words bank/sentences))]
-      (is (>= (count covered) 950)
-          (str "at least 950/1000 words covered, got " (count covered)))
+      (is (>= (count covered) 997)
+          (str "997/1000 words covered, got " (count covered)))
       (is (every? #(contains? (set (map :word data/words)) %) covered)
           "every covered word is one of the 1000"))
+    (is (some (fn [s]
+                (>= (count (re-seq #"[A-Za-z]+(?:'[A-Za-z]+)?" (:text s))) 16))
+              bank/sentences)
+        "bank includes long sentences (16+ words)")
+    (is (>= (apply max (map #(count (:words %)) bank/sentences)) 20)
+        "some bank sentence holds 20+ distinct top-1000 words")
     (is (every? (fn [s]
                   (and (re-matches #"[A-Z].*[.?!]" (:text s))
                        (= "tatoeba" (:source s))

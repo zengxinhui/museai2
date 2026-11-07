@@ -7,19 +7,31 @@
    The app only *selects* from the bank — it never glues mastered
    words together into templates.
 
-   Selection: a sentence is eligible when it contains at least 2
-   distinct mastered words; if none does, sentences with at least 1
-   mastered word are used. If no sentence contains any mastered word,
-   this returns nil and the view shows the unlock message.
-   Deterministic from the calendar date: the same mastered words give
-   the same sentence all day; `offset` (\"Another sentence\") cycles
-   to the next eligible sentence.
+   Selection: every bank sentence is scored by how many DISTINCT
+   mastered words it contains, and the pick comes from the top tier
+   — sentences scoring the maximum, or one below it (at most 25,
+   best score first, then text order so the order is stable). When
+   that tier has fewer than 5 entries it is topped up with the
+   next-best scores, so there are always a few different sentences
+   to cycle through. The
+   day number picks one entry of that tier, so the sentence is
+   stable all day but varies across days; `offset` (\"Another
+   sentence\") cycles through the tier. With only a few mastered
+   words the best available sentence is shown rather than nothing
+   (e.g. with 5 mastered words no real sentence can hold more than
+   5 of them); the view shows how many mastered words the sentence
+   uses, so that number visibly grows as more words are mastered.
+   If no sentence contains any mastered word, this returns nil and
+   the view shows the unlock message.
 
-   A sentence is {:text \"...\" :segments [...] :words [...] :source
-   \"tatoeba\"}. Segments are plain strings, or mastered-word maps
-   with a :surface key holding the word exactly as it appears in the
-   sentence (so \"The\" at the start of a sentence stays capitalised);
-   joining the segments reconstructs :text exactly."
+   A sentence is {:text \"...\" :segments [...] :words [...]
+   :n-mastered n :source \"tatoeba\"}. Segments are plain strings, or
+   mastered-word maps with a :surface key holding the word exactly
+   as it appears in the sentence (so \"The\" at the start of a
+   sentence stays capitalised); joining the segments reconstructs
+   :text exactly. :words are the mastered words used, in rank order;
+   :n-mastered is how many distinct mastered words the sentence
+   contains."
   (:require [wordmaster.data.sentences :as bank]))
 
 (defn day-number
@@ -85,23 +97,45 @@
               piece))
           (re-seq #"[A-Za-z]+(?:'[A-Za-z]+)?|[^A-Za-z]+" text))))
 
-(defn sentence-of-the-day
-  "Returns {:text :segments :words :source} for the given mastered
-   words (rank order), or nil when no bank sentence contains any of
-   them (including when there are no mastered words). `offset` cycles
-   to the next eligible sentence for the 'Another' button."
-  [mastered-words day-num offset]
+(def ^:private top-tier-size 25)
+(def ^:private min-tier-size 5)
+
+(defn top-tier
+  "Bank sentences scored by distinct mastered words they contain,
+   best first (then text order for stability). Returns [entry score]
+   pairs for the top tier: scores of the maximum, or one below it,
+   capped at `top-tier-size` entries. When that tier has fewer than
+   `min-tier-size` entries it is topped up with the next-best
+   scores, so there are always a few different sentences to cycle
+   through. Empty when nothing scores."
+  [mastered-words]
   (let [mastered (set (map :word mastered-words))]
     (when (seq mastered)
-      (let [n-mastered (fn [s] (count (filter mastered (:words s))))
-            eligible2 (filterv #(>= (n-mastered %) 2) bank/sentences)
-            eligible1 (filterv #(>= (n-mastered %) 1) bank/sentences)
-            eligible (seq (or (seq eligible2) (seq eligible1)))]
-        (when eligible
-          (let [entry (nth eligible (mod (+ day-num offset) (count eligible)))
-                used (filterv #(contains? (set (:words entry)) (:word %))
-                              mastered-words)]
-            {:text (:text entry)
-             :segments (segments-for (:text entry) used)
-             :words used
-             :source (:source entry)}))))))
+      (let [scored (mapv (fn [s]
+                           [s (count (filter mastered (:words s)))])
+                         bank/sentences)
+            best (apply max 0 (map second scored))
+            sorted (sort-by (fn [[s n]] [(- n) (:text s)]) scored)
+            within1 (filter #(>= (second %) (max 1 (dec best))) sorted)]
+        (when (pos? best)
+          (vec (if (>= (count within1) min-tier-size)
+                 (take top-tier-size within1)
+                 (take min-tier-size sorted))))))))
+
+(defn sentence-of-the-day
+  "Returns {:text :segments :words :n-mastered :source} for the given
+   mastered words (rank order), or nil when no bank sentence contains
+   any of them (including when there are no mastered words). The pick
+   is the day's entry of the top tier; `offset` cycles through the
+   tier for the 'Another' button."
+  [mastered-words day-num offset]
+  (let [tier (top-tier mastered-words)]
+    (when (seq tier)
+      (let [[entry _] (nth tier (mod (+ day-num offset) (count tier)))
+            used (filterv #(contains? (set (:words entry)) (:word %))
+                          mastered-words)]
+        {:text (:text entry)
+         :segments (segments-for (:text entry) used)
+         :words used
+         :n-mastered (count used)
+         :source (:source entry)}))))

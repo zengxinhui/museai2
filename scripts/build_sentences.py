@@ -18,7 +18,13 @@ The script:
 2. Picks, for each of the 1,000 words, up to 3 sentences — walking the
    candidates best-first so sentences that cover several words serve
    several words at once.
-3. Writes the bank to scripts/sentences.json and to
+3. Adds longer natural single sentences (16-30 words, at least half
+   top-1000 words, at least 8 distinct top-1000 words) so the app can
+   show a sentence using many mastered words at once: the top 500 by
+   distinct top-1000 words, plus a diversity pass (up to 800 total)
+   that makes sure every word has at least one long sentence. These
+   are kept even when their words already have 3 short sentences.
+4. Writes the bank to scripts/sentences.json and to
    src/wordmaster/data/sentences.cljs (compiled in), each entry
    {:text "..." :words ["book" "table"] :source "tatoeba"}, where
    :words is the list of top-1000 words the sentence contains, in
@@ -48,6 +54,17 @@ OUT_JSON = os.path.join(ROOT, "scripts", "sentences.json")
 OUT_CLJS = os.path.join(ROOT, "src", "wordmaster", "data", "sentences.cljs")
 UNCOVERED = os.path.join(ROOT, "scripts", "uncovered_words.json")
 PER_WORD = 3
+LONG_MIN_WORDS = 16
+LONG_MAX_WORDS = 30
+LONG_MIN_FRAC = 0.5
+LONG_MIN_DISTINCT = 8
+LONG_KEEP_TOP = 500
+LONG_KEEP_TOTAL = 800
+
+# A capitalised conjunction after a comma/semicolon is a poem-line
+# artefact ("...with me, And what can be the use of him..."), not a
+# normal sentence — reject those in the long pass.
+CONJ_AFTER_PUNCT = re.compile(r"[,;]\s+(And|But|Or|So|Yet|For|Nor)\b")
 
 TOKEN_RE = re.compile(r"[A-Za-z]+(?:'[A-Za-z]+)?")
 ALLOWED = set(
@@ -72,6 +89,14 @@ CONTRACTIONS = {
     "what's": "what", "who's": "who", "where's": "where",
     "when's": "when", "why's": "why", "how's": "how",
     "there's": "there", "here's": "here",
+}
+
+
+# Sentences that are real Tatoeba entries but demonstrably garbled
+# (mistranslations with no coherent parse) — excluded by hand.
+# Keys use the same normalisation as the dedupe key below.
+DENYLIST = {
+    "do not search for what you are worth in the eyes of people but rather try to find it in your conscience is free your status is automatically elevated",
 }
 
 
@@ -159,6 +184,44 @@ def iter_candidates(text, good_fn, top):
         yield score, part, distinct
 
 
+def iter_long_candidates(text, top):
+    """Yield (score, sentence, distinct-top-words) for long single
+    sentences (16-30 words) in a Tatoeba entry. Same splitting as
+    iter_candidates; kept only when dense in top-1000 words, so the
+    app can show one sentence using many mastered words at once."""
+    for part in re.split(r"(?<=[.?!])\s+(?=[A-Z])", text):
+        part = part.strip()
+        if not part or not part[0].isupper():
+            continue
+        if part[-1] not in ".?!":
+            continue
+        if "..." in part or "  " in part:
+            continue
+        if any(ch not in ALLOWED for ch in part):
+            continue
+        if any(ch.isdigit() for ch in part):
+            continue
+        if CONJ_AFTER_PUNCT.search(part):
+            continue
+        tokens = TOKEN_RE.findall(part)
+        if not LONG_MIN_WORDS <= len(tokens) <= LONG_MAX_WORDS:
+            continue
+        if any(len(t) > 1 and t.isupper() for t in tokens):
+            continue
+        normed = [normalize_token(t) for t in tokens]
+        in_top = [t for t in normed if t in top]
+        if not in_top:
+            continue
+        frac = len(in_top) / len(tokens)
+        if frac < LONG_MIN_FRAC:
+            continue
+        distinct = list(dict.fromkeys(in_top))
+        if len(distinct) < LONG_MIN_DISTINCT:
+            continue
+        score = (len(distinct), frac, -abs(len(tokens) - 20))
+        yield score, part, distinct
+
+
 def cljs_str(s):
     return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
@@ -187,6 +250,8 @@ def main():
             ):
                 key = re.sub(r"[^a-z ]", "", part.lower())
                 key = re.sub(r"\s+", " ", key).strip()
+                if key in DENYLIST:
+                    continue
                 prev = best.get(key)
                 if prev is None or score > prev[0]:
                     best[key] = (score, part, distinct)
@@ -235,6 +300,8 @@ def main():
                         continue
                     key = re.sub(r"[^a-z ]", "", part.lower())
                     key = re.sub(r"\s+", " ", key).strip()
+                    if key in DENYLIST:
+                        continue
                     prev = relaxed.get(key)
                     if prev is None or score > prev[0]:
                         relaxed[key] = (score, part, distinct)
@@ -260,6 +327,58 @@ def main():
         covered = [w for w in words if per_word_count[w] > 0]
         uncovered = [w for w in words if per_word_count[w] == 0]
 
+    # Long pass: keep long, dense sentences so one sentence can use
+    # many mastered words at once (a 15-word sentence can hold at most
+    # 15 distinct words). These are added even when their words already
+    # have 3 short sentences: top 500 by distinct top-1000 words, then
+    # a diversity pass up to 800 total that gives every word at least
+    # one long sentence where one exists.
+    long_best = {}
+    with bz2.open(TATOEBA, "rt", encoding="utf-8", errors="replace") as f:
+        for line in f:
+            parts = line.rstrip("\n").split("\t", 2)
+            if len(parts) != 3:
+                continue
+            text = parts[2].strip()
+            for score, part, distinct in iter_long_candidates(text, top):
+                key = re.sub(r"[^a-z ]", "", part.lower())
+                key = re.sub(r"\s+", " ", key).strip()
+                if key in DENYLIST:
+                    continue
+                prev = long_best.get(key)
+                if prev is None or score > prev[0]:
+                    long_best[key] = (score, part, distinct)
+    long_sorted = sorted(long_best.values(), key=lambda c: (c[0], c[1]), reverse=True)
+    long_per_word = {w: 0 for w in words}
+    long_added = []
+    for _score, text, distinct in long_sorted:
+        if len(long_added) >= LONG_KEEP_TOP:
+            break
+        if text in bank_texts:
+            continue
+        long_added.append({"text": text, "words": distinct, "source": "tatoeba"})
+        bank_texts.add(text)
+        for w in distinct:
+            long_per_word[w] += 1
+    for _score, text, distinct in long_sorted:
+        if len(long_added) >= LONG_KEEP_TOTAL:
+            break
+        if text in bank_texts:
+            continue
+        if not any(long_per_word[w] == 0 for w in distinct):
+            continue
+        long_added.append({"text": text, "words": distinct, "source": "tatoeba"})
+        bank_texts.add(text)
+        for w in distinct:
+            long_per_word[w] += 1
+    bank.extend(long_added)
+    print(f"long pass: {len(long_best)} candidates, added {len(long_added)} sentences "
+          f"(top {LONG_KEEP_TOP} + diversity to {LONG_KEEP_TOTAL})")
+    print(f"long sentences: max distinct top-1000 words "
+          f"{max(len(s['words']) for s in long_added)}; "
+          f"words with a long sentence: "
+          f"{sum(1 for w in words if long_per_word[w] > 0)}/1000")
+
     print(f"bank: {len(bank)} sentences")
     print(f"coverage: {len(covered)}/1000 words")
     print(f"uncovered ({len(uncovered)}): {uncovered}")
@@ -275,7 +394,10 @@ def main():
             "  \"Real English sentences for Sentence of the Day.\n\n"
             "   Source: Tatoeba English sentences (CC-BY),\n"
             "   https://downloads.tatoeba.org/exports/per_language/eng/,\n"
-            "   filtered to short natural sentences containing top-1000 words.\n"
+            "   filtered to natural sentences containing top-1000 words:\n"
+            "   short ones (3-15 words, up to 3 per word) plus long dense\n"
+            "   ones (16-30 words, at least 8 distinct top-1000 words) so\n"
+            "   one sentence can use many mastered words at once.\n"
             "   Generated by scripts/build_sentences.py — do not edit by hand.\n"
             "   Each entry: {:text \\\"...\\\" :words [top-1000 words it contains]\n"
             "   :source \\\"tatoeba\\\"}.\"\n"

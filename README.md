@@ -49,20 +49,30 @@ Java is not on `PATH` by default here; the wrapper sets
 
 ## Sentence of the Day
 
-Real sentences, not templates: the app selects from a bank of 1,755
+Real sentences, not templates: the app selects from a bank of 2,475
 sentences from **Tatoeba** (English sentences, CC-BY — see
-`scripts/build_sentences.py`), filtered to short natural sentences
-(3–15 words) containing top-1000 words. A sentence is eligible when
-it contains at least 2 distinct mastered words, falling back to
-sentences with 1 mastered word; if no sentence contains any mastered
+`scripts/build_sentences.py`): short natural sentences (3–15 words,
+up to 3 per word) plus long dense ones (16–30 words, at least 8
+distinct top-1000 words), all containing top-1000 words. Selection
+maximises the mastered words used: every sentence is scored by how
+many distinct mastered words it contains, and the pick comes from
+the top tier (the best score, or one below it, topped up to at least
+5 entries so there is always something to cycle through). A single
+real sentence cannot hold 20 distinct mastered words until many
+words are mastered — with the first 200 words mastered the pick
+uses about 19, with the first 50 about 15, with the first 5 all 5;
+the view shows "Uses N mastered words" so the number visibly grows
+as more words are mastered. If no sentence contains any mastered
 word it says "Master a word to unlock sentences!". Selection is
 deterministic from the calendar date (same words → same sentence all
-day), with an "Another sentence" button to cycle. Mastered words are
-highlighted in place, with their meanings listed below, and the view
-notes the Tatoeba (CC-BY) source. Coverage: 997/1000 words have at
-least one sentence; the 3 uncovered words (`rss`, `feb`, `jul` — see
-`scripts/uncovered_words.json`) are abbreviations that do not occur
-as standalone words in natural sentences.
+day), with an "Another sentence" button to cycle through the tier.
+Mastered words are highlighted in place, with their meanings listed
+below, and the view notes the Tatoeba (CC-BY) source. Coverage:
+997/1000 words have at least one sentence; the 3 uncovered words
+(`rss`, `feb`, `jul` — see `scripts/uncovered_words.json`) are
+abbreviations that do not occur as standalone words in natural
+sentences. One demonstrably garbled Tatoeba entry is excluded by a
+small denylist in `scripts/build_sentences.py`.
 
 Regenerate with `python3 scripts/build_sentences.py` (downloads the
 Tatoeba per-language English export into `data-raw/`).
@@ -112,7 +122,7 @@ src/wordmaster/
   sentence.cljs            Sentence of the Day: selects real Tatoeba
                            sentences containing mastered words
   data/words.cljs          the 1,000 words, compiled in
-  data/sentences.cljs      1,755 Tatoeba sentences, compiled in
+  data/sentences.cljs      2,475 Tatoeba sentences, compiled in
 test/wordmaster/
   srs_test.cljs            cljs.test: the 8 critical spec cases + extras
 scripts/
@@ -127,13 +137,16 @@ scripts/
 
 ## Tests
 
-`scripts/watch.sh compile test && node public/js/test.js` — 15 tests,
-50 assertions, 0 failures. Covers: new pass/fail, mastered pass
+`scripts/watch.sh compile test && node public/js/test.js` — 16 tests,
+61 assertions, 0 failures. Covers: new pass/fail, mastered pass
 doubling incl. the 32-day cap, mastered fail reset, and the three queue
 cases (5 due + 10 new → 10 with all due; 0 due + 10 new → 10 in rank
 order; 12 due + 5 new → 10 due), plus question shape, sentence
 determinism (real Tatoeba sentence, 2+ mastered words in context,
 segments reconstruct the text exactly, 1-word fallback, uncovered
-word → nil), sentence-bank coverage (≥950/1000 words, every listed
-word occurs in its sentence), and dataset sanity (count, ranks,
-uniqueness, meanings).
+word → nil), sentence maximisation (50 mastered words → ≥10 used,
+200 → ≥15 used, varies across days, offset cycles, top tier within 2
+of the best score), sentence-bank coverage (997/1000 words, long
+sentences present, some sentence holds 20+ distinct top-1000 words,
+every listed word occurs in its sentence), and dataset sanity (count,
+ranks, uniqueness, meanings).

@@ -166,6 +166,10 @@
            (if (string? seg)
              ^{:key idx} [:<> seg]
              ^{:key idx} [:span {:class (str "hl hl-" (mod idx 4))} (or (:surface seg) (:word seg))]))]
+        [:p.sentence-count
+         (str "Uses " (or (:n-mastered s) (count (:words s))) " mastered word"
+              (when (not= 1 (or (:n-mastered s) (count (:words s)))) "s")
+              " — the more words you master, the more this sentence can use.")]
         [:div {:style {:margin-top "16px"}}
          [:h3 "Words used"]
          [:ul
