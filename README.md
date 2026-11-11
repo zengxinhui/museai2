@@ -31,41 +31,6 @@ classpath is supplied. On a machine with normal Maven access, plain
 Java is not on `PATH` by default here; the wrapper sets
 `JAVA_HOME=/home/hatch/workspace/tools/jdk-21.0.13+9`.
 
-### Pre-commit hook: don't commit a dev build of main.js
-
-`public/js/main.js` is tracked in git, but only as a compiled
-release build (advanced compilation, ~1.1 MB). The dev server
-overwrites it with an unoptimised dev build (5+ MB), which must
-never be committed.
-
-`scripts/hooks/pre-commit` enforces this: on `git commit`, if
-`public/js/main.js` is staged, the hook rejects the commit when
-the staged copy looks like a dev build — it contains
-`var COMPILED = false;`, or it is larger than 3 MB. Commits that
-don't touch `main.js`, and staged release builds, pass through.
-
-The hook is tracked in the repo, but git hooks don't travel with
-a clone — enable it once per checkout with:
-
-```sh
-git config core.hooksPath scripts/hooks
-```
-
-To commit a new release build instead:
-
-```sh
-scripts/watch.sh release app
-git add public/js/main.js
-git commit
-```
-
-Note: that `git add` prints an "ignored paths" hint and exits 1
-because `public/js/` is gitignored — the tracked file is still
-staged; check with `git status`. To drop an accidental dev build
-from the worktree instead: `git checkout -- public/js/main.js`.
-(`git commit --no-verify` bypasses the hook; only use it if you
-mean it.)
-
 ## How learning works (SRS rules)
 
 - **Session queue:** at most 10 words per session — due reviews first
